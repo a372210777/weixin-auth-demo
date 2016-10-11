@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <meta name="viewport"
+          content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=0,minimal-ui">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="format-detection" content="telephone=no">
+    <meta content="UClean" name=description>
+    <title>API</title>
+</head>
+<body>
+
+hello world
+<div id="result">
+</div>
+<div id="code">
+</div>
+<button>test ajax</button>
+
+<script src="lib/jquery-3.1.0.min.js"></script>
+<script src="http://res.wx.qq.com/open/js/jweixin-1.0.0.js"></script>
+<script>
+    var appid = 'wx172b51436ce5f123';
+    var weixinOauthURL = 'https://open.weixin.qq.com/connect/oauth2/authorize';
+
+    var serverUrl = "test.zhinengxiyifang.cn";
+    var getJsSdkConfig = '/api/v1/wx/getJsSdkConfig';
+    var getOpenIdbyCode = '/api/v1/wx/getOpenIdbyCode';
+    var geoLocation = '/api/v1/wx/geoLocation';
+
+    function is_weixn() {
+        var ua = navigator.userAgent.toLowerCase();
+        if (ua.match(/micromessenger/i) == "micromessenger") {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    function getLocationURL() {
+        return location.href.split('#')[0];
+    }
+    /**
+     * 获取URL参数
+     * @param name 要获取的参数名称
+     * @returns {*}
+     */
+    function getQueryString(name) {
+        var reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)", "i");
+        var r = decodeURI(window.location.search).substr(1).match(reg);
+        if (r != null) return unescape(r[2]);
+        return null;
+    }
+    /**
+     * 以scope=snsapi_userinfo请求微信用户网页授权
+     * @param redirectUri
+     */
+    function oauthUserInfo(redirectUri) {
+        oauth('snsapi_userinfo', redirectUri, 'userinfo');
+    }
+
+
+    /**
+     * 以scope=snsapi_base请求授权
+     * 静默状态，没有用户确认授权页面
+     * @param redirectUri
+     */
+    function oauthUserBase(redirectUri) {
+        oauth('snsapi_base', redirectUri, 'base');
+    }
+
+    /**
+     * 发起授权请求
+     * @param scope
+     * @param redirectUri
+     */
+    function oauth(scope, redirectUri, state) {
+        var redirectURL = encodeURIComponent(redirectUri);
+        var oauthURL = weixinOauthURL;
+        oauthURL += "?appid=" + appid;
+        oauthURL += "&redirect_uri=" + redirectURL;
+        oauthURL += "&response_type=code";
+        oauthURL += "&scope=" + scope;
+        oauthURL += "&state=" + state;
+        oauthURL += "#wechat_redirect";
+        window.location.href = oauthURL;
+    }
+
+    function storeUser(data) {
+        localStorage.setItem('user.openid', data.openid);
+        localStorage.setItem('user.nickname', data.nickname);
+
+        localStorage.setItem('user.sex', data.sex);
+        localStorage.setItem('user.province', data.province);
+        localStorage.setItem('user.city', data.city);
+
+        localStorage.setItem('user.country', data.country);
+        localStorage.setItem('user.headimgurl', data.portrait);
+        localStorage.setItem('user.unionId', data.unionId);
+    }
+
+
+
+    /**
+     * 页面认证用户信息
+     * 1.优先从本地存储中获取用户信息(以openId是否存在为依据)
+     * 2.如果本地没有openId则优先以静默方式请求用户信息(用户自己清空本地缓存的情况)
+     * 3.以上都没有，则要求用户进行微信网页授权流程,授权后返回当前页面
+     *
+     * @param callback
+     * 用户信息认证后的回调函数，为保证ajax请求同步， 请在回调函数内使用localStorage取用户信息,
+     * 多数情况下没问题，但在用户第一次授权时如果不在回调内访问localStorage 可能存在取不到值的情况
+     */
+    function oauthWeiXinUser(callback) {
+        var redirectUri = getLocationURL();
+        var openid = localStorage.getItem("user.openid");
+        var state = getQueryString('state');//通过state区分是base还是userinfo请求 S.alert("state: " + state);
+        var code = getQueryString("code");
+
+        $("#code").append("code:"+code+"</br>");
+        // 第一次进入,浏览器本地无openid,执行base认证获取openid
+        if (!openid) {
+            if (!code) {
+                /*先靜默方式找用户信息，
+                 *如果静默方式找不到则要求用户授权
+                 */
+                oauthUserBase(redirectUri);
+            }
+        } else {
+            $("#result").append("本地缓存获取用户信息:</br>");
+            $("#result").append("openId:"+localStorage.getItem('user.openid')+"</br>");
+            $("#result").append("access_token:"+localStorage.getItem('user.sex')+"</br>");
+            $("#result").append("access_token:"+localStorage.getItem('user.nickname')+"</br>");
+            $("#result").append("access_token:"+localStorage.getItem('user.country')+"</br>");
+            callback();
+        }
+
+        // base回调执行
+        if (code && state === 'base') {                  //S.alert('静默回调');
+
+            $.ajax({
+              url: getOpenIdbyCode,
+              data: {code:code,state:"base"},
+              success: function(data,textStatus,xhr){
+                if(data.result=="1" ){
+                    var user = data.data
+                    if(user){
+                      storeUser(user)
+                      $("#result").append("openId:"+user.openid+"</br>");
+                      $("#result").append("access_token:"+user.nickname+"</br>");
+                      $("#result").append("access_token:"+user.sex+"</br>");
+                      $("#result").append("access_token:"+user.language+"</br>");
+                      callback();
+                    }else{
+                      redirectUri = redirectUri.split('&code=')[0].split('code=')[0];//防止code在第一个参数位置
+                      oauthUserInfo(redirectUri);
+                    }
+
+                }else{
+                  alert(data.msg)
+                }
+              },
+              error:function(err){
+                $("#result").append(err);
+              },
+              dataType: "json"
+            });
+            return;
+        }
+
+        // userinfo 回调执行
+        if (code && state == 'userinfo') {
+            // S.alert('### UserInfo授权请求回调获取用户详细信息.');
+            //用户网页授权后服务端获取用户信息
+            // getUserInfoOauth(callback);
+
+            $.ajax({
+              url: getOpenIdbyCode,
+              data: {code:code,state:"userinfo"},
+              success: function(data,textStatus,xhr){
+                if(data.result=="1"){
+                  var user = data.data
+                  if(user){
+                    storeUser(user)
+                    $("#result").append("openId:"+user.openid+"</br>");
+                    $("#result").append("access_token:"+user.nickname+"</br>");
+                    $("#result").append("access_token:"+user.sex+"</br>");
+                    $("#result").append("access_token:"+user.language+"</br>");
+                    callback();
+                  }else{
+                    alert("获取失败")
+                  }
+                }else{
+                  $("#result").append(data.msg);
+                }
+              },
+              error:function(err){
+                $("#result").append(err);
+              },
+              dataType: "json"
+            });
+
+
+            return;
+        }
+    }
+
+    function getLocation(success,fail) {
+      //获取当前位置坐标
+      if (is_weixn()) {
+        wx.getLocation({
+          type: 'wgs84', // 默认为wgs84的gps坐标，如果要返回直接给openLocation用的火星坐标，可传入'gcj02'
+          success: function (res) {
+              var latitude = res.latitude;
+              var longitude = res.longitude;
+              success(longitude,latitude)
+          },
+          fail:function(){
+            fail();
+          }
+        });
+      } else {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(function (p) {
+                    var latitude = p.coords.latitude;//纬度
+                    var longitude = p.coords.longitude;
+                    console.log("经纬度" + longitude + "," + latitude);
+                    var geoLocation = [longitude, latitude];
+                    localStorage.geoLocation = geolocation;
+                    success(longitude,latitude);
+                  }, function (e) {
+                    fail();
+                  }
+          );
+        } else {
+          fail();
+          alert("浏览器不支持定位功能!");
+        }
+      }
+    }
+
+
+
+
+
+    oauthWeiXinUser(function(){
+        //获取用户信息后配置JSSDK
+        $.ajax({
+          url: getJsSdkConfig,
+          data: {url:window.location.href},
+          success: function(data,textStatus,xhr){
+            if(data.result=="1"){
+              var data = data.data;
+              wx.config({
+                  debug: true, // 开启调试模式,调用的所有api的返回值会在客户端alert出来，若要查看传入的参数，可以在pc端打开，参数信息会通过log打出，仅在pc端时才会打印。
+                  appId: appid, // 必填，公众号的唯一标识
+                  timestamp: data.timestamp, // 必填，生成签名的时间戳
+                  nonceStr: data.noncestr, // 必填，生成签名的随机串
+                  signature: data.signature,// 必填，签名，见附录1
+                  jsApiList: [
+                    'onMenuShareTimeline'
+                    ,'onMenuShareAppMessage'
+                    ,'onMenuShareQQ'
+                    ,'onMenuShareWeibo'
+                    ,'startRecord'
+                    ,'stopRecord'
+                    ,'onVoiceRecordEnd'
+                    ,'playVoice'
+                    ,'pauseVoice'
+                    ,'stopVoice'
+                    ,'onVoicePlayEnd'
+                    ,'uploadVoice'
+                    ,'downloadVoice'
+                    ,'chooseImage'
+                    ,'previewImage'
+                    ,'uploadImage'
+                    ,'downloadImage'
+                    ,'translateVoice'
+                    ,'getNetworkType'
+                    ,'openLocation'
+                    ,'getLocation'
+                    ,'hideOptionMenu'
+                    ,'showOptionMenu'
+                    ,'hideMenuItems'
+                    ,'showMenuItems'
+                    ,'hideAllNonBaseMenuItem'
+                    ,'showAllNonBaseMenuItem'
+                    ,'closeWindow'
+                    ,'scanQRCode'
+                    ,'chooseWXPay'
+                    ,'openProductSpecificView'
+                    ,'addCard'
+                    ,'chooseCard'
+                    ,'openCard'
+                  ] // 必填，需要使用的JS接口列表，所有JS接口列表见附录2
+              });
+
+            }else{
+              $("#result").append(data.msg);
+            }
+          },
+          error:function(err){
+            $("#result").append(err);
+          },
+          dataType: "json"
+        });
+
+        wx.ready(function(){
+            getLocation(function(longitude,latitude){
+
+              $("#result").append("微信接口获取经度:"+longitude+" 维度:"+latitude+"</br>");
+
+              $.ajax({
+                type: 'GET',
+                dataType: "json",
+                data: {
+                  long:longitude,
+                  lat:latitude
+                },
+                url: geoLocation,
+                success: function (data,status,xhr) {
+                  if (data.result == 1) {
+                      var data = data.data;
+                      if(data.status == "0"){
+                        $('#result').append(data.result.formatted_address+"</br>");
+                      }else{
+                        $('#result').append('未能正确解析定位的地址'+"</br>");
+                      }
+                  } else {
+                    $('#result').append('未能正确解析定位的地址'+"</br>");
+                  }
+                },
+                error: function () {
+                }
+              });
+
+            },function(){
+              alert("获取定位失败")
+              $('#result').append('获取定位失败'+"</br>");
+            })
+        });
+
+
+    })
+</script>
+</body>
+
+</html>
